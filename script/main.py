@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 torch.manual_seed(42)
 
 from helper_functions import accuracy_fn
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # 1. Load Dataset
 train_dataset = datasets.FashionMNIST(root='data', download=True, train=True, transform=ToTensor(), target_transform=None)
@@ -42,12 +43,21 @@ class FashionMNISTModelv0(nn.Module):
     def forward(self, x):
         return self.layer_stack(x)
 
-model_0 = FashionMNISTModelv0(input_shape=784, hidden_units=10, output_shape=len(class_names))
-model_0.to("cpu")
+# 6. Building a Non-Linear Model
+# adding nn.Relu() for non-linearity
+class FashionMNISTModelv1(nn.Module):
+    def __init__(self, input_shape: int, hidden_units: int, output_shape: int):
+        super().__init__()
+        self.layer_stack = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_features=input_shape, out_features=hidden_units),
+            nn.ReLU(),
+            nn.Linear(in_features=hidden_units, out_features=output_shape),
+            nn.ReLU()
+        )
 
-# 3.1. Setup optimizer and loss function
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(params=model_0.parameters(), lr=0.1)
+    def forward(self, x: torch.Tensor):
+        return self.layer_stack(x)
 
 # 3.2. time counting forward pass on GPU and CPU
 def print_train_time(start: float, end: float, device: torch.device = None):
@@ -56,7 +66,11 @@ def print_train_time(start: float, end: float, device: torch.device = None):
     return total_time
 
 # 3.3. training loop and train a model on batches of data
-def train(train_dataloader, test_dataloader):
+def train(model: torch.nn.Module,
+          train_dataloader: torch.utils.data.DataLoader, 
+          test_dataloader: torch.utils.data.DataLoader,
+          loss: torch.nn.Module):
+    optimizer = torch.optim.SGD(params=model.parameters(), lr=0.1)
     train_time_start_on_cpu = timer()
     epochs = 3 
 
@@ -64,7 +78,7 @@ def train(train_dataloader, test_dataloader):
         print(f"Epoch: {epoch}\n------------------------")
 
         train_loss = 0
-        model_0.train()
+        model.train()
         for batch, (x, y) in enumerate(train_dataloader):
             y_pred = model_0(x)
             loss = loss_fn(y_pred, y)
@@ -80,10 +94,10 @@ def train(train_dataloader, test_dataloader):
         train_loss /= len(train_dataloader)
 
         test_loss, test_acc = 0, 0
-        model_0.eval()
+        model.eval()
         with torch.inference_mode():
             for x, y in test_dataloader: 
-                test_pred = model_0(x)
+                test_pred = model(x)
                 test_loss += loss_fn(test_pred, y)
                 test_acc += accuracy_fn(y_true=y, y_pred=test_pred.argmax(dim=1))
 
@@ -93,12 +107,13 @@ def train(train_dataloader, test_dataloader):
         print(f"Train loss: {train_loss:.5f} | Test loss: {test_loss:.5f}, Test acc: {test_acc:.5f}")
 
     train_time_end_on_cpu = timer()
-    total_train_time_model_0 = print_train_time(start=train_time_start_on_cpu, end=train_time_end_on_cpu, device=str(next(model_0.parameters()).device))
+    total_train_time_model_0 = print_train_time(start=train_time_start_on_cpu, end=train_time_end_on_cpu, device=str(next(model.parameters()).device))
 
 def eval_model(model: torch.nn.Module,
                data_loader: torch.utils.data.DataLoader,
                loss_fn: torch.nn.Module,
-               accuracy_fn):
+               accuracy_fn,
+               device: torch.device = device):
     """
     Args:
         model (torch.nn.Module): A PyTorch model capable of making predictions on data_loader.
@@ -110,10 +125,11 @@ def eval_model(model: torch.nn.Module,
         (dict): Results of model making predictions on data_loader.
     """
 
-    loss, acc= 0, 0
+    loss, acc = 0, 0
     model.eval()
     with torch.inference_mode():
         for x, y in data_loader: 
+            x, y = x.to(device), y.to(device)
             y_pred = model(x)
 
             loss += loss_fn(y_pred, y)
@@ -127,11 +143,25 @@ def eval_model(model: torch.nn.Module,
             "model_acc": acc}
 
 def main(model_mode):
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    input(device)
+    # v0
+    # model = FashionMNISTModelv0(input_shape=784, hidden_units=10, output_shape=len(class_names))
+    # v1
+    model = FashionMNISTModelv1(input_shape=784, hidden_units=10, output_shape=len(class_names))
+    model.to(device)
+
+    # 3.1. Setup optimizer and loss function
+    loss_fn = nn.CrossEntropyLoss()
+
     if model_mode == 'train':
-        train(train_dataloader, test_dataloader)
+        train(model=model, 
+              train_dataloader=train_dataloader, 
+              test_dataloader=test_dataloader,
+              loss=loss_fn)
     
     elif model_mode == 'test':
-        test = eval_model(model=model_0, 
+        test = eval_model(model=model, 
                           data_loader=test_dataloader,
                           loss_fn=loss_fn,
                           accuracy_fn=accuracy_fn)
