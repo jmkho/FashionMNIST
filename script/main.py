@@ -10,8 +10,11 @@ import torch.nn.functional as F
 from torch.nn import init
 
 import matplotlib.pyplot as plt
+import os
 from timeit import default_timer as timer 
 from tqdm.auto import tqdm
+from pathlib import Path
+from torchinfo import summary
 torch.manual_seed(42)
 
 from helper_functions import accuracy_fn
@@ -189,7 +192,6 @@ class MobileNetV3_Large(nn.Module):
         out = self.hs1(self.bn1(self.conv1(x)))
         out = self.bneck(out)
         out = self.hs2(self.bn2(self.conv2(out)))
-        input(out.shape)
         # out = F.avg_pool2d(out, 7)    # before this pooling the image has a 1x1 size already. So when it got pooled, the image reduces to 0x0.
         out = out.view(out.size(0), -1)
         out = self.hs3(self.bn3(self.linear3(out)))
@@ -213,7 +215,7 @@ def train(model: torch.nn.Module,
     train_time_start = timer()
 
     optimizer = torch.optim.SGD(params=model.parameters(), lr=0.1)
-    epochs = 3 
+    epochs = 5
 
     for epoch in tqdm(range(epochs)):
         print(f"Epoch: {epoch}\n------------------------")
@@ -295,10 +297,17 @@ def main():
     # v2 - MobileNetV3 Large
     model = MobileNetV3_Large()
     model.to(device)
-    input(device)
 
     # 3.1. Setup optimizer and loss function
     loss_fn = nn.CrossEntropyLoss()
+
+    # If you need model summary 
+    # summary(model=model,
+    #         input_size=(32,1,16,16),
+    #         col_names=['input_size', 'output_size', 'num_params', 'trainable'],
+    #         col_width=20,
+    #         row_settings=['var_names'])
+    # input("Printed model summary")
 
     # if model_mode == 'train':
     train(model=model, 
@@ -313,6 +322,14 @@ def main():
                       accuracy_fn=accuracy_fn)
         
     print(test)
+
+    MODEL_PATH = Path("models")
+    MODEL_PATH.mkdir(parents=True, exist_ok=True)
+    MODEL_NAME = 'FashionMNIST_MobileNetV3_model.pth'
+    MODEL_SAVE_PATH = MODEL_PATH / MODEL_NAME
+
+    print(f"Saving model to: {MODEL_SAVE_PATH}")
+    torch.save(obj=model.state_dict(), f=MODEL_SAVE_PATH)
 
 
 if __name__ == '__main__':
